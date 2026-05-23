@@ -1,0 +1,83 @@
+name: Weekly Mobility Instagram Post
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-mobility-instagram-post
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check syntax
+        run: npm run check
+
+      - name: Prepare weekly post
+        run: npm run prepare-post
+        env:
+          NEWS_QUERY: ${{ vars.NEWS_QUERY }}
+          NEWS_RSS_FEEDS: ${{ vars.NEWS_RSS_FEEDS }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+
+      - name: Commit generated post assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .state
+          if [ -d dist/posts ]; then
+            git add dist/posts
+          fi
+          if git diff --cached --quiet; then
+            echo "No generated assets to commit."
+            exit 0
+          fi
+          git commit -m "Prepare weekly mobility post"
+          git pull --rebase
+          git push
+
+      - name: Wait for generated image URL
+        run: sleep 10
+
+      - name: Publish to Instagram
+        run: npm run publish-post
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GRAPH_API_VERSION: ${{ vars.GRAPH_API_VERSION }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+
+      - name: Commit published state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .state
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git commit -m "Record published mobility post"
+          git pull --rebase
+          git push
